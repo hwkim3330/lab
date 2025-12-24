@@ -60,14 +60,13 @@ The game exposes an observation/action interface for RL training:
 
 ```
 lab/
-├── game/           # Rust game source
+├── game/              # Rust game source
 │   ├── src/
 │   │   └── main.rs
 │   └── Cargo.toml
-├── web/            # GitHub Pages
-│   ├── index.html
-│   └── mini-isaac.wasm
-└── rl/             # Python RL (coming soon)
+├── rl/                # Python RL (coming soon)
+├── index.html         # GitHub Pages
+└── mini-isaac.wasm    # WASM build
 ```
 
 ## License
