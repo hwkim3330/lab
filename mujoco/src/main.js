@@ -6,6 +6,9 @@ import { DragStateManager } from './utils/DragStateManager.js';
 import { setupGUI, downloadExampleScenesFolder, loadSceneFromURL, drawTendonsAndFlex, getPosition, getQuaternion, toMujocoPos, standardNormal } from './mujocoUtils.js';
 import   load_mujoco        from '../node_modules/mujoco-js/dist/mujoco_wasm.js';
 
+// Check WebGPU support
+const hasWebGPU = navigator.gpu !== undefined;
+
 // Load the MuJoCo Module
 const mujoco = await load_mujoco();
 
@@ -124,39 +127,46 @@ export class MuJoCoDemo {
     this.renderer.setSize( window.innerWidth, window.innerHeight );
   }
 
-  // Simple walking gait generator
+  // Walking gait generator for OpenDuck Mini
+  // Actuator order:
+  // 0: left_hip_yaw, 1: left_hip_roll, 2: left_hip_pitch, 3: left_knee, 4: left_ankle
+  // 5: neck_pitch, 6: head_pitch, 7: head_yaw, 8: head_roll
+  // 9: right_hip_yaw, 10: right_hip_roll, 11: right_hip_pitch, 12: right_knee, 13: right_ankle
   applyWalkingControl() {
-    const freq = 2.0; // Walking frequency Hz
-    const amp = 0.3;  // Amplitude
-
+    const freq = 1.5; // Walking frequency Hz
     this.walkPhase += this.model.opt.timestep * freq * 2 * Math.PI;
-
-    // OpenDuck Mini joint order (approximate):
-    // Left leg: hip_roll, hip_pitch, knee, ankle_pitch, ankle_roll
-    // Right leg: similar
-    // Head joints
+    const phase = this.walkPhase;
 
     const ctrl = this.data.ctrl;
-    const nCtrl = ctrl.length;
+    if (ctrl.length < 14) return;
 
-    if (nCtrl >= 10) {
-      // Simple sinusoidal gait pattern
-      const phase = this.walkPhase;
+    // Standing pose (from keyframe)
+    const stand = {
+      left_hip_yaw: 0.002, left_hip_roll: 0.053, left_hip_pitch: -0.63, left_knee: 1.368, left_ankle: -0.784,
+      right_hip_yaw: -0.003, right_hip_roll: -0.065, right_hip_pitch: 0.635, right_knee: 1.379, right_ankle: -0.796
+    };
 
-      // Left leg (indices 0-4)
-      ctrl[0] = 0.0;                           // left hip roll
-      ctrl[1] = 0.05 + amp * 0.3 * Math.sin(phase);  // left hip pitch
-      ctrl[2] = -0.6 + amp * 0.5 * Math.sin(phase);  // left knee
-      ctrl[3] = 1.35 + amp * 0.3 * Math.sin(phase);  // left ankle pitch
-      ctrl[4] = -0.78;                         // left ankle roll
+    // Walking amplitudes
+    const amp_pitch = 0.25;
+    const amp_knee = 0.3;
+    const amp_ankle = 0.15;
 
-      // Right leg (indices 5-9) - opposite phase
-      ctrl[5] = 0.0;                           // right hip roll
-      ctrl[6] = -0.05 + amp * 0.3 * Math.sin(phase + Math.PI); // right hip pitch
-      ctrl[7] = 0.6 + amp * 0.5 * Math.sin(phase + Math.PI);   // right knee
-      ctrl[8] = 1.35 + amp * 0.3 * Math.sin(phase + Math.PI);  // right ankle pitch
-      ctrl[9] = -0.78;                         // right ankle roll
-    }
+    // Left leg (phase 0)
+    ctrl[0] = stand.left_hip_yaw;
+    ctrl[1] = stand.left_hip_roll;
+    ctrl[2] = stand.left_hip_pitch + amp_pitch * Math.sin(phase);
+    ctrl[3] = stand.left_knee + amp_knee * Math.sin(phase);
+    ctrl[4] = stand.left_ankle + amp_ankle * Math.sin(phase);
+
+    // Head stable
+    ctrl[5] = 0; ctrl[6] = 0; ctrl[7] = 0; ctrl[8] = 0;
+
+    // Right leg (phase PI - opposite)
+    ctrl[9] = stand.right_hip_yaw;
+    ctrl[10] = stand.right_hip_roll;
+    ctrl[11] = stand.right_hip_pitch + amp_pitch * Math.sin(phase + Math.PI);
+    ctrl[12] = stand.right_knee + amp_knee * Math.sin(phase + Math.PI);
+    ctrl[13] = stand.right_ankle + amp_ankle * Math.sin(phase + Math.PI);
   }
 
   render(timeMS) {
