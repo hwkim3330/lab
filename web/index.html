@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Isaac - RL Roguelike</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: #fff;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(255, 100, 100, 0.5);
+        }
+
+        .subtitle {
+            color: #888;
+            margin-bottom: 20px;
+        }
+
+        #game-container {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 30px;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+
+        .control-group {
+            text-align: center;
+        }
+
+        .control-group h3 {
+            color: #fff;
+            margin-bottom: 5px;
+        }
+
+        kbd {
+            background: #333;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            border: 1px solid #555;
+        }
+
+        .loading {
+            font-size: 1.2rem;
+            color: #888;
+        }
+
+        footer {
+            margin-top: 30px;
+            color: #555;
+            font-size: 0.8rem;
+        }
+
+        footer a {
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mini Isaac</h1>
+    <p class="subtitle">Lightweight Isaac-style Roguelike for RL Experiments</p>
+
+    <div id="game-container">
+        <canvas id="glcanvas" tabindex="1" width="416" height="352"></canvas>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <h3>Move</h3>
+            <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></p>
+        </div>
+        <div class="control-group">
+            <h3>Shoot</h3>
+            <p><kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd></p>
+        </div>
+        <div class="control-group">
+            <h3>Reset</h3>
+            <p><kbd>R</kbd></p>
+        </div>
+    </div>
+
+    <footer>
+        <p>Made with Rust + macroquad | <a href="https://github.com/hwkim3330/lab">GitHub</a></p>
+    </footer>
+
+    <script>
+        // Macroquad WASM loader
+        var Module = {
+            canvas: document.getElementById('glcanvas'),
+        };
+    </script>
+    <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+    <script>
+        load("mini-isaac.wasm");
+    </script>
+</body>
+</html>
