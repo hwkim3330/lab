@@ -119,6 +119,30 @@ export class MuJoCoDemo {
 
     // Add walking toggle
     this.gui.add(this.params, 'walking').name('Walking');
+
+    // Add quick reset button
+    this.gui.add({
+      reset: () => {
+        if (this.model.nkey > 0) {
+          this.data.qpos.set(this.model.key_qpos.slice(0, this.model.nq));
+          this.data.ctrl.set(this.model.key_ctrl.slice(0, this.model.nu));
+          this.walkPhase = 0;
+          mujoco.mj_forward(this.model, this.data);
+        }
+      }
+    }, 'reset').name('Reset Robot (R)');
+
+    // Add keyboard shortcut for reset
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'r' || e.key === 'R') {
+        if (this.model.nkey > 0) {
+          this.data.qpos.set(this.model.key_qpos.slice(0, this.model.nq));
+          this.data.ctrl.set(this.model.key_ctrl.slice(0, this.model.nu));
+          this.walkPhase = 0;
+          mujoco.mj_forward(this.model, this.data);
+        }
+      }
+    });
   }
 
   onWindowResize() {
