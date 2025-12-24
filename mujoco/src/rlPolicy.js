@@ -59,19 +59,24 @@ export class RLPolicy {
 
     let gyro, accelerometer;
 
+    // Sensor data layout (from Python):
+    // 0-2: gyro (3)
+    // 3-5: local_linvel (3)
+    // 6-8: accelerometer (3)
     // Check if sensor data is available and valid
     if (sensordata && sensordata.length >= 9 && !isNaN(sensordata[0])) {
       // Gyro from sensor data (sensor 0: gyro, 3 values)
       gyro = [sensordata[0], sensordata[1], sensordata[2]];
       // Accelerometer from sensor data (starts at index 6)
-      // Python shows ~[1.3, 0, 0] for standing - accelerometer measures proper acceleration
+      // Python adds 1.3 to x-component as adjustment
+      // After physics settles: accel ~ [1.3, 0, 9.8], after +1.3: [2.6, 0, 9.8]
       accelerometer = [sensordata[6] + 1.3, sensordata[7], sensordata[8]];
     } else {
       // Fallback: use qvel for angular velocity (gyro)
       gyro = [qvel[3], qvel[4], qvel[5]];
-      // Fallback: accelerometer should be ~[1.3, 0, 0] when standing still
-      // NOT the gravity direction! MuJoCo accelerometer measures proper acceleration
-      accelerometer = [1.3, 0, 0];
+      // Fallback: accelerometer after +1.3 adjustment when standing
+      // Raw ~ [1.3, 0, 9.8], after +1.3 ~ [2.6, 0, 9.8]
+      accelerometer = [2.6, 0.0, 9.81];
     }
 
     // Joint angles (actuated joints: indices 7-20 in qpos for 14 DOF)
@@ -88,8 +93,11 @@ export class RLPolicy {
       jointVel[i] = qvel[6 + i] * this.dofVelScale;
     }
 
-    // Foot contacts - Python shows [0, 0] initially, implement proper detection later
-    const contacts = [0.0, 0.0];
+    // Foot contacts - when standing, both feet should be in contact
+    // Python shows (True, True) when standing on ground
+    // TODO: implement proper contact detection from MuJoCo contact data
+    const height = qpos[2];
+    const contacts = height < 0.2 ? [1.0, 1.0] : [0.0, 0.0];
 
     // Imitation phase - starts at [0, 0] initially, then updates
     // Phase update happens AFTER observation is used (like in Python)
@@ -142,13 +150,18 @@ export class RLPolicy {
 
     // Debug: log first observation
     if (this.debugCount === undefined) this.debugCount = 0;
-    if (this.debugCount < 3) {
-      console.log('Observation sample:', {
-        gyro: [obs[0], obs[1], obs[2]],
-        accel: [obs[3], obs[4], obs[5]],
-        commands: Array.from(obs.slice(6, 13)),
-        jointAngles: Array.from(obs.slice(13, 27)),
-        jointVel: Array.from(obs.slice(27, 41)),
+    if (this.debugCount < 5) {
+      console.log(`Observation #${this.debugCount}:`, {
+        gyro: [obs[0].toFixed(4), obs[1].toFixed(4), obs[2].toFixed(4)],
+        accel: [obs[3].toFixed(4), obs[4].toFixed(4), obs[5].toFixed(4)],
+        commands: Array.from(obs.slice(6, 13)).map(v => v.toFixed(3)),
+        jointAngles: Array.from(obs.slice(13, 27)).map(v => v.toFixed(3)),
+        motorTargets: Array.from(obs.slice(69, 83)).map(v => v.toFixed(3)),
+        contacts: [obs[83].toFixed(1), obs[84].toFixed(1)],
+        phase: [obs[99].toFixed(3), obs[100].toFixed(3)],
+        height: data.qpos[2].toFixed(4),
+        sensorAvailable: data.sensordata && data.sensordata.length >= 9,
+        rawSensor6_8: data.sensordata ? [data.sensordata[6], data.sensordata[7], data.sensordata[8]] : 'N/A'
       });
       this.debugCount++;
     }
