@@ -18,6 +18,44 @@
 
 Load and Run MuJoCo 3.3.8 Models using JavaScript and the official MuJoCo WebAssembly Bindings.
 
+## OpenDuck Mini RL Simulation
+
+This fork includes an RL-based walking simulation for the OpenDuck Mini robot:
+
+### Features
+- **ONNX Inference**: Pre-trained walking policy using ONNX Runtime Web
+- **Online Training**: Browser-based PPO training with TensorFlow.js
+- **Dual Mode**:
+  - **WASM Mode**: Pure browser simulation (GitHub Pages compatible)
+  - **WebSocket Mode**: Python backend with native MuJoCo (accurate physics)
+
+### Controls
+- **WASD/Arrows**: Walking direction
+- **Q/E**: Turn left/right
+- **Space**: Stop
+- **R**: Reset robot
+
+### Running Locally
+
+**Web Version (WASM):**
+```bash
+npm install
+npx five-server  # or any HTTP server
+```
+
+**Python Backend (accurate physics):**
+```bash
+cd server
+pip install -r requirements.txt
+./start_server.sh
+```
+
+### Training
+1. Enable "Training" in the GUI
+2. The robot will collect experience and train using PPO
+3. Click "Save Model" to save to browser storage
+4. Click "Export Model" to download the trained model
+
 This project used to be a WASM compilation and set of javascript bindings for MuJoCo, but since Deepmind completed the official MuJoCo bindings, this project is now just a small demo suite in the `examples` folder.
 
 ### [See the Live Demo Here](https://zalo.github.io/mujoco_wasm/)

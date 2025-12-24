@@ -5,9 +5,21 @@ import { OrbitControls    } from '../node_modules/three/examples/jsm/controls/Or
 import { DragStateManager } from './utils/DragStateManager.js';
 import { setupGUI, downloadExampleScenesFolder, loadSceneFromURL, drawTendonsAndFlex, getPosition, getQuaternion, toMujocoPos, standardNormal } from './mujocoUtils.js';
 import   load_mujoco        from '../node_modules/mujoco-js/dist/mujoco_wasm.js';
+import { RLPolicy } from './rlPolicy.js';
+import { PPOTrainer, computeReward } from './tfTraining.js';
+import { MuJoCoWebSocket, SimulationManager } from './wsClient.js';
 
 // Check WebGPU support
 const hasWebGPU = navigator.gpu !== undefined;
+
+// RL Policy for learned walking (ONNX inference)
+const rlPolicy = new RLPolicy();
+
+// PPO Trainer for online learning (TensorFlow.js)
+const ppoTrainer = new PPOTrainer();
+
+// Simulation manager for WASM/WebSocket mode switching
+const simManager = new SimulationManager();
 
 // Load the MuJoCo Module
 const mujoco = await load_mujoco();
@@ -31,10 +43,37 @@ export class MuJoCoDemo {
     this.data  = new mujoco.MjData(this.model);
 
     // Define Random State Variables
-    this.params = { scene: initialScene, paused: false, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0, walking: true, autoReset: true };
+    this.params = {
+      scene: initialScene,
+      paused: false,
+      help: false,
+      ctrlnoiserate: 0.0,
+      ctrlnoisestd: 0.0,
+      keyframeNumber: 0,
+      walking: true,
+      autoReset: false,
+      useRLPolicy: true,
+      // Training mode
+      training: false,
+      trainBatchSize: 256,
+      simMode: 'wasm'  // 'wasm' or 'websocket'
+    };
     this.mujoco_time = 0.0;
     this.walkPhase = 0.0;
     this.fallCount = 0;
+    this.rlPolicyLoaded = false;
+    this.inferenceStep = 0;
+    this.decimation = 10; // Run policy every N steps (matches Python)
+    this.inferenceRunning = false; // Prevent overlapping inferences
+
+    // Training state
+    this.ppoReady = false;
+    this.trainingEpisode = 0;
+    this.trainingStep = 0;
+    this.lastObs = null;
+    this.lastAction = null;
+    this.lastValue = null;
+    this.lastLogProb = null;
     this.bodies  = {}, this.lights = {};
     this.tmpVec  = new THREE.Vector3();
     this.tmpQuat = new THREE.Quaternion();
@@ -113,13 +152,26 @@ export class MuJoCoDemo {
       this.data.qpos.set(this.model.key_qpos.slice(0, this.model.nq));
       this.data.ctrl.set(this.model.key_ctrl.slice(0, this.model.nu));
       mujoco.mj_forward(this.model, this.data);
+      console.log('Initial qpos (joints):', Array.from(this.data.qpos).slice(7, 21).map(v => v.toFixed(3)));
+      console.log('Initial ctrl:', Array.from(this.data.ctrl).map(v => v.toFixed(3)));
+      console.log('Trunk height:', this.data.qpos[2].toFixed(3));
     }
 
     this.gui = new GUI();
     setupGUI(this);
 
+    // Load RL policy
+    const policyLoaded = await rlPolicy.load('./assets/BEST_WALK_ONNX.onnx');
+    this.rlPolicyLoaded = policyLoaded;
+    if (policyLoaded) {
+      console.log('RL Policy ready!');
+      console.log('Initial motor targets:', Array.from(rlPolicy.motorTargets).map(t => t.toFixed(3)));
+      console.log('Default actuator:', Array.from(rlPolicy.defaultActuator).map(t => t.toFixed(3)));
+    }
+
     // Add walking toggle
     this.gui.add(this.params, 'walking').name('Walking');
+    this.gui.add(this.params, 'useRLPolicy').name('Use RL Policy');
 
     // Add quick reset button
     this.gui.add({
@@ -129,10 +181,89 @@ export class MuJoCoDemo {
     // Add auto-reset toggle
     this.gui.add(this.params, 'autoReset').name('Auto Reset on Fall');
 
-    // Add keyboard shortcut for reset
+    // Initialize PPO trainer for online learning
+    try {
+      this.ppoReady = await ppoTrainer.init();
+      if (this.ppoReady) {
+        console.log('PPO Trainer ready for online learning!');
+        // Try to load saved model
+        await ppoTrainer.load();
+      }
+    } catch (e) {
+      console.log('PPO Trainer init failed (TensorFlow.js not loaded?):', e);
+    }
+
+    // Training controls folder
+    const trainingFolder = this.gui.addFolder('Training');
+    trainingFolder.add(this.params, 'training').name('Enable Training').onChange((val) => {
+      if (val) {
+        this.params.autoReset = true;  // Auto-reset during training
+        this.trainingStep = 0;
+        this.trainingEpisode++;
+        console.log(`Training Episode ${this.trainingEpisode} started`);
+      }
+    });
+    trainingFolder.add(this.params, 'trainBatchSize', 64, 1024, 64).name('Batch Size');
+    trainingFolder.add({
+      train: async () => {
+        if (ppoTrainer.buffer.observations.length > 0) {
+          const lastValue = ppoTrainer.getValue(rlPolicy.getObservation(this.data, this.model));
+          await ppoTrainer.train(lastValue);
+        }
+      }
+    }, 'train').name('Train Now');
+    trainingFolder.add({
+      save: async () => { await ppoTrainer.save(); }
+    }, 'save').name('Save Model');
+    trainingFolder.add({
+      export: async () => { await ppoTrainer.export(); }
+    }, 'export').name('Export Model');
+
+    // Simulation mode selector
+    const modeFolder = this.gui.addFolder('Simulation Mode');
+    modeFolder.add(this.params, 'simMode', ['wasm', 'websocket']).name('Mode').onChange(async (mode) => {
+      if (mode === 'websocket') {
+        const connected = await simManager.connectWebSocket();
+        if (!connected) {
+          this.params.simMode = 'wasm';
+          alert('WebSocket connection failed. Using WASM mode.\nStart the Python server: python server/mujoco_server.py');
+        }
+      }
+    });
+    modeFolder.add({
+      connect: async () => {
+        const connected = await simManager.connectWebSocket();
+        if (connected) {
+          this.params.simMode = 'websocket';
+          console.log('Connected to Python backend');
+        }
+      }
+    }, 'connect').name('Connect to Server');
+
+    // Add keyboard shortcuts
     document.addEventListener('keydown', (e) => {
       if (e.key === 'r' || e.key === 'R') {
         this.resetRobot();
+      }
+      // Walking direction controls (WASD or arrows)
+      if (this.rlPolicyLoaded) {
+        const SPEED = 0.15;
+        const TURN = 1.0;
+        if (e.key === 'ArrowUp' || e.key === 'w') {
+          rlPolicy.setCommand(SPEED, 0, 0);
+        } else if (e.key === 'ArrowDown' || e.key === 's') {
+          rlPolicy.setCommand(-SPEED, 0, 0);
+        } else if (e.key === 'ArrowLeft' || e.key === 'a') {
+          rlPolicy.setCommand(0, SPEED, 0);
+        } else if (e.key === 'ArrowRight' || e.key === 'd') {
+          rlPolicy.setCommand(0, -SPEED, 0);
+        } else if (e.key === 'q') {
+          rlPolicy.setCommand(0, 0, TURN);
+        } else if (e.key === 'e') {
+          rlPolicy.setCommand(0, 0, -TURN);
+        } else if (e.key === ' ') {
+          rlPolicy.setCommand(0, 0, 0); // Stop
+        }
       }
     });
   }
@@ -142,6 +273,16 @@ export class MuJoCoDemo {
       this.data.qpos.set(this.model.key_qpos.slice(0, this.model.nq));
       this.data.ctrl.set(this.model.key_ctrl.slice(0, this.model.nu));
       this.walkPhase = 0;
+      this.inferenceStep = 0;
+      this.inferenceRunning = false;
+      rlPolicy.reset(); // Reset action history
+
+      // Reset training state
+      this.lastObs = null;
+      this.lastAction = null;
+      this.lastValue = null;
+      this.lastLogProb = null;
+
       mujoco.mj_forward(this.model, this.data);
       this.fallCount++;
       console.log(`Reset #${this.fallCount}`);
@@ -172,41 +313,129 @@ export class MuJoCoDemo {
     this.renderer.setSize( window.innerWidth, window.innerHeight );
   }
 
-  // Walking gait generator for OpenDuck Mini
-  // Actuator order:
-  // 0: left_hip_yaw, 1: left_hip_roll, 2: left_hip_pitch, 3: left_knee, 4: left_ankle
-  // 5: neck_pitch, 6: head_pitch, 7: head_yaw, 8: head_roll
-  // 9: right_hip_yaw, 10: right_hip_roll, 11: right_hip_pitch, 12: right_knee, 13: right_ankle
+  // Walking control - either RL policy or simple sinusoidal
   applyWalkingControl() {
-    const freq = 1.5; // Walking frequency Hz
-    this.walkPhase += this.model.opt.timestep * freq * 2 * Math.PI;
-    const phase = this.walkPhase;
-
     const ctrl = this.data.ctrl;
     if (ctrl.length < 14) return;
 
-    // Standing pose (from keyframe)
+    // Training mode: use PPO policy and collect experience
+    if (this.params.training && this.ppoReady && this.params.walking) {
+      this.inferenceStep++;
+      if (this.inferenceStep >= this.decimation) {
+        this.inferenceStep = 0;
+
+        // Get observation
+        const obs = rlPolicy.getObservation(this.data, this.model);
+
+        // Store previous transition if we have one
+        if (this.lastObs !== null) {
+          const state = {
+            qpos: Array.from(this.data.qpos),
+            qvel: Array.from(this.data.qvel),
+            fallen: this.checkFallen()
+          };
+          const reward = computeReward(state, rlPolicy.commands);
+          const done = state.fallen;
+
+          ppoTrainer.storeTransition(
+            this.lastObs,
+            this.lastAction,
+            reward,
+            this.lastValue,
+            this.lastLogProb,
+            done
+          );
+
+          this.trainingStep++;
+
+          // Train when batch is full
+          if (ppoTrainer.buffer.observations.length >= this.params.trainBatchSize) {
+            const lastValue = ppoTrainer.getValue(obs);
+            ppoTrainer.train(lastValue).then(stats => {
+              if (stats) {
+                console.log(`Training step ${this.trainingStep}: reward=${stats.avgReward.toFixed(3)}`);
+              }
+            });
+          }
+        }
+
+        // Get action from PPO policy
+        const { action, logProb } = ppoTrainer.getAction(Array.from(obs));
+        const value = ppoTrainer.getValue(Array.from(obs));
+
+        // Store for next step
+        this.lastObs = Array.from(obs);
+        this.lastAction = action;
+        this.lastValue = value;
+        this.lastLogProb = logProb;
+
+        // Apply action as motor targets
+        for (let i = 0; i < 14; i++) {
+          const target = rlPolicy.defaultActuator[i] + action[i] * rlPolicy.actionScale;
+          ctrl[i] = target;
+        }
+      }
+      return;
+    }
+
+    // Use RL policy if loaded and enabled AND walking mode is on
+    if (this.params.walking && this.params.useRLPolicy && this.rlPolicyLoaded) {
+      this.inferenceStep++;
+      if (this.inferenceStep >= this.decimation && !this.inferenceRunning) {
+        this.inferenceStep = 0;
+        this.inferenceRunning = true;
+        rlPolicy.infer(this.data, this.model).then(motorTargets => {
+          if (motorTargets) {
+            for (let i = 0; i < 14; i++) {
+              this.data.ctrl[i] = motorTargets[i];
+            }
+          }
+          this.inferenceRunning = false;
+        }).catch(e => {
+          console.error('Inference error:', e);
+          this.inferenceRunning = false;
+        });
+      }
+      // Always apply current motor targets (keeps control active between inferences)
+      const targets = rlPolicy.motorTargets;
+      for (let i = 0; i < 14; i++) {
+        ctrl[i] = targets[i];
+      }
+      return;
+    }
+
+    // Standing mode: just hold the keyframe pose (for testing)
+    if (!this.params.walking) {
+      // Hold default standing pose
+      const standingPose = [
+        0.002, 0.053, -0.63, 1.368, -0.784,  // left leg
+        0, 0, 0, 0,                           // head
+        -0.003, -0.065, 0.635, 1.379, -0.796  // right leg
+      ];
+      for (let i = 0; i < 14; i++) {
+        ctrl[i] = standingPose[i];
+      }
+      return;
+    }
+
+    // Fallback: simple sinusoidal gait
+    const freq = 1.5;
+    this.walkPhase += this.model.opt.timestep * freq * 2 * Math.PI;
+    const phase = this.walkPhase;
+
     const stand = {
       left_hip_yaw: 0.002, left_hip_roll: 0.053, left_hip_pitch: -0.63, left_knee: 1.368, left_ankle: -0.784,
       right_hip_yaw: -0.003, right_hip_roll: -0.065, right_hip_pitch: 0.635, right_knee: 1.379, right_ankle: -0.796
     };
 
-    // Walking amplitudes
-    const amp_pitch = 0.25;
-    const amp_knee = 0.3;
-    const amp_ankle = 0.15;
+    const amp_pitch = 0.25, amp_knee = 0.3, amp_ankle = 0.15;
 
-    // Left leg (phase 0)
     ctrl[0] = stand.left_hip_yaw;
     ctrl[1] = stand.left_hip_roll;
     ctrl[2] = stand.left_hip_pitch + amp_pitch * Math.sin(phase);
     ctrl[3] = stand.left_knee + amp_knee * Math.sin(phase);
     ctrl[4] = stand.left_ankle + amp_ankle * Math.sin(phase);
-
-    // Head stable
     ctrl[5] = 0; ctrl[6] = 0; ctrl[7] = 0; ctrl[8] = 0;
-
-    // Right leg (phase PI - opposite)
     ctrl[9] = stand.right_hip_yaw;
     ctrl[10] = stand.right_hip_roll;
     ctrl[11] = stand.right_hip_pitch + amp_pitch * Math.sin(phase + Math.PI);
@@ -222,8 +451,8 @@ export class MuJoCoDemo {
       if (timeMS - this.mujoco_time > 35.0) { this.mujoco_time = timeMS; }
       while (this.mujoco_time < timeMS) {
 
-        // Apply walking control if enabled
-        if (this.params["walking"] && this.params.scene.includes("openduck")) {
+        // Apply control for OpenDuck robot
+        if (this.params.scene.includes("openduck")) {
           this.applyWalkingControl();
         }
 
