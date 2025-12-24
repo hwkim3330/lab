@@ -166,7 +166,18 @@ export class MuJoCoDemo {
 
       // Update forward kinematics
       mujoco.mj_forward(this.model, this.data);
-      console.log('Applied home keyframe for OpenDuck (qpos, qvel=0, ctrl)');
+
+      // Debug: Log initial state
+      console.log('=== OpenDuck Init Debug ===');
+      console.log('nq:', nq, 'nv:', nv, 'nu:', nu);
+      console.log('qpos[0:7] (base):', Array.from(this.data.qpos.slice(0, 7)).map(v => v.toFixed(4)));
+      console.log('qpos[7:21] (joints):', Array.from(this.data.qpos.slice(7, 21)).map(v => v.toFixed(4)));
+      console.log('ctrl:', Array.from(this.data.ctrl).map(v => v.toFixed(4)));
+      console.log('key_qpos[0:7]:', Array.from(this.model.key_qpos.slice(0, 7)).map(v => v.toFixed(4)));
+      console.log('key_ctrl:', Array.from(this.model.key_ctrl.slice(0, nu)).map(v => v.toFixed(4)));
+      console.log('timestep:', this.model.opt.timestep);
+      console.log('iterations:', this.model.opt.iterations);
+      console.log('=========================');
     }
 
     // Set camera for OpenDuck
@@ -188,11 +199,9 @@ export class MuJoCoDemo {
       const loaded = await this.onnxController.loadModel('./assets/models/openduck_walk.onnx');
       if (loaded) {
         console.log('ONNX model loaded successfully');
-        // Enable ONNX controller for walking
-        this.onnxController.enabled = true;
-        // Set forward walking command: 0.15 m/s
-        this.onnxController.setCommand(0.15, 0, 0);
-        console.log('ONNX controller ENABLED with forward command 0.15 m/s');
+        // DISABLE ONNX to test pure physics stability
+        this.onnxController.enabled = false;
+        console.log('ONNX DISABLED - testing pure physics with keyframe ctrl');
       }
     } catch (e) {
       console.warn('Failed to load ONNX model:', e);
