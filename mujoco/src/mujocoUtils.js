@@ -27,10 +27,11 @@ export function setupGUI(parentContext) {
   // Add scene selection dropdown.
   let reload = reloadFunc.bind(parentContext);
   parentContext.gui.add(parentContext.params, 'scene', {
+    "OpenDuck": "openduck/scene_flat_terrain.xml",
     "Humanoid": "humanoid.xml", "Cassie": "agility_cassie/scene.xml",
     "Hammock": "hammock.xml", "Balloons": "balloons.xml", "Hand": "shadow_hand/scene_right.xml",
     "Mug": "mug.xml", "Tendon": "model_with_tendon.xml",
-    "Torture Model": "model.xml", "Flex": "flex.xml", "Car": "car.xml", 
+    "Torture Model": "model.xml", "Flex": "flex.xml", "Car": "car.xml",
   }).name('Example Scene').onChange(reload);
 
   // Add a help menu.
@@ -691,6 +692,39 @@ export async function downloadExampleScenesFolder(mujoco) {
     "simple.xml",
     "slider_crank.xml",
     "model_with_tendon.xml",
+    // OpenDuck files
+    "openduck/scene_flat_terrain.xml",
+    "openduck/open_duck_mini_v2.xml",
+    "openduck/joints_properties.xml",
+    "openduck/sensors.xml",
+    "openduck/assets/antenna.stl",
+    "openduck/assets/body_back.stl",
+    "openduck/assets/body_front.stl",
+    "openduck/assets/body_middle_bottom.stl",
+    "openduck/assets/body_middle_top.stl",
+    "openduck/assets/foot_bottom_pla.stl",
+    "openduck/assets/foot_bottom_tpu.stl",
+    "openduck/assets/foot_side.stl",
+    "openduck/assets/foot_top.stl",
+    "openduck/assets/head.stl",
+    "openduck/assets/head_bot_sheet.stl",
+    "openduck/assets/head_pitch_to_yaw.stl",
+    "openduck/assets/head_yaw_to_roll.stl",
+    "openduck/assets/left_antenna_holder.stl",
+    "openduck/assets/left_cache.stl",
+    "openduck/assets/left_knee_to_ankle_left_sheet.stl",
+    "openduck/assets/left_knee_to_ankle_right_sheet.stl",
+    "openduck/assets/left_roll_to_pitch.stl",
+    "openduck/assets/leg_spacer.stl",
+    "openduck/assets/neck_left_sheet.stl",
+    "openduck/assets/neck_right_sheet.stl",
+    "openduck/assets/right_antenna_holder.stl",
+    "openduck/assets/right_cache.stl",
+    "openduck/assets/right_roll_to_pitch.stl",
+    "openduck/assets/roll_motor_bottom.stl",
+    "openduck/assets/roll_motor_top.stl",
+    "openduck/assets/trunk_bottom.stl",
+    "openduck/assets/trunk_top.stl",
   ];
 
   let requests = allFiles.map((url) => fetch("./assets/scenes/" + url));
