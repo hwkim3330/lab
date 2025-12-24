@@ -10,10 +10,14 @@ import   load_mujoco        from '../node_modules/mujoco-js/dist/mujoco_wasm.js'
 const mujoco = await load_mujoco();
 
 // Set up Emscripten's Virtual File System
-var initialScene = "humanoid.xml";
 mujoco.FS.mkdir('/working');
 mujoco.FS.mount(mujoco.MEMFS, { root: '.' }, '/working');
-mujoco.FS.writeFile("/working/" + initialScene, await(await fetch("./assets/scenes/" + initialScene)).text());
+
+// Download all files first (including OpenDuck)
+await downloadExampleScenesFolder(mujoco);
+
+// Now load OpenDuck as default
+var initialScene = "openduck/scene_flat_terrain.xml";
 
 export class MuJoCoDemo {
   constructor() {
@@ -24,8 +28,9 @@ export class MuJoCoDemo {
     this.data  = new mujoco.MjData(this.model);
 
     // Define Random State Variables
-    this.params = { scene: initialScene, paused: false, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0 };
+    this.params = { scene: initialScene, paused: false, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0, walking: true };
     this.mujoco_time = 0.0;
+    this.walkPhase = 0.0;
     this.bodies  = {}, this.lights = {};
     this.tmpVec  = new THREE.Vector3();
     this.tmpQuat = new THREE.Quaternion();
@@ -39,7 +44,7 @@ export class MuJoCoDemo {
 
     this.camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.001, 100 );
     this.camera.name = 'PerspectiveCamera';
-    this.camera.position.set(2.0, 1.7, 1.7);
+    this.camera.position.set(0.5, 0.4, 0.8);
     this.scene.add(this.camera);
 
     this.scene.background = new THREE.Color(0.15, 0.25, 0.35);
@@ -53,29 +58,26 @@ export class MuJoCoDemo {
     this.spotlight.angle = 1.11;
     this.spotlight.distance = 10000;
     this.spotlight.penumbra = 0.5;
-    this.spotlight.castShadow = true; // default false
+    this.spotlight.castShadow = true;
     this.spotlight.intensity = this.spotlight.intensity * 3.14 * 10.0;
-    this.spotlight.shadow.mapSize.width = 1024; // default
-    this.spotlight.shadow.mapSize.height = 1024; // default
-    this.spotlight.shadow.camera.near = 0.1; // default
-    this.spotlight.shadow.camera.far = 100; // default
+    this.spotlight.shadow.mapSize.width = 1024;
+    this.spotlight.shadow.mapSize.height = 1024;
+    this.spotlight.shadow.camera.near = 0.1;
+    this.spotlight.shadow.camera.far = 100;
     this.spotlight.position.set(0, 3, 3);
     const targetObject = new THREE.Object3D();
     this.scene.add(targetObject);
     this.spotlight.target = targetObject;
-    targetObject.position.set(0, 1, 0);
+    targetObject.position.set(0, 0.15, 0);
     this.scene.add( this.spotlight );
 
     this.renderer = new THREE.WebGLRenderer( { antialias: true } );
-    this.renderer.setPixelRatio(1.0);////window.devicePixelRatio );
+    this.renderer.setPixelRatio(1.0);
     this.renderer.setSize( window.innerWidth, window.innerHeight );
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // default THREE.PCFShadowMap
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     THREE.ColorManagement.enabled = false;
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-    //this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-    //this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    //this.renderer.toneMappingExposure = 2.0;
     this.renderer.useLegacyLights = true;
 
     this.renderer.setAnimationLoop( this.render.bind(this) );
@@ -83,7 +85,7 @@ export class MuJoCoDemo {
     this.container.appendChild( this.renderer.domElement );
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.target.set(0, 0.7, 0);
+    this.controls.target.set(0, 0.15, 0);
     this.controls.panSpeed = 2;
     this.controls.zoomSpeed = 1;
     this.controls.enableDamping = true;
@@ -98,21 +100,63 @@ export class MuJoCoDemo {
   }
 
   async init() {
-    // Download the the examples to MuJoCo's virtual file system
-    await downloadExampleScenesFolder(mujoco);
-
     // Initialize the three.js Scene using the .xml Model in initialScene
     [this.model, this.data, this.bodies, this.lights] =
       await loadSceneFromURL(mujoco, initialScene, this);
 
+    // Load keyframe to start standing
+    if (this.model.nkey > 0) {
+      this.data.qpos.set(this.model.key_qpos.slice(0, this.model.nq));
+      this.data.ctrl.set(this.model.key_ctrl.slice(0, this.model.nu));
+      mujoco.mj_forward(this.model, this.data);
+    }
+
     this.gui = new GUI();
     setupGUI(this);
+
+    // Add walking toggle
+    this.gui.add(this.params, 'walking').name('Walking');
   }
 
   onWindowResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize( window.innerWidth, window.innerHeight );
+  }
+
+  // Simple walking gait generator
+  applyWalkingControl() {
+    const freq = 2.0; // Walking frequency Hz
+    const amp = 0.3;  // Amplitude
+
+    this.walkPhase += this.model.opt.timestep * freq * 2 * Math.PI;
+
+    // OpenDuck Mini joint order (approximate):
+    // Left leg: hip_roll, hip_pitch, knee, ankle_pitch, ankle_roll
+    // Right leg: similar
+    // Head joints
+
+    const ctrl = this.data.ctrl;
+    const nCtrl = ctrl.length;
+
+    if (nCtrl >= 10) {
+      // Simple sinusoidal gait pattern
+      const phase = this.walkPhase;
+
+      // Left leg (indices 0-4)
+      ctrl[0] = 0.0;                           // left hip roll
+      ctrl[1] = 0.05 + amp * 0.3 * Math.sin(phase);  // left hip pitch
+      ctrl[2] = -0.6 + amp * 0.5 * Math.sin(phase);  // left knee
+      ctrl[3] = 1.35 + amp * 0.3 * Math.sin(phase);  // left ankle pitch
+      ctrl[4] = -0.78;                         // left ankle roll
+
+      // Right leg (indices 5-9) - opposite phase
+      ctrl[5] = 0.0;                           // right hip roll
+      ctrl[6] = -0.05 + amp * 0.3 * Math.sin(phase + Math.PI); // right hip pitch
+      ctrl[7] = 0.6 + amp * 0.5 * Math.sin(phase + Math.PI);   // right knee
+      ctrl[8] = 1.35 + amp * 0.3 * Math.sin(phase + Math.PI);  // right ankle pitch
+      ctrl[9] = -0.78;                         // right ankle roll
+    }
   }
 
   render(timeMS) {
@@ -122,6 +166,11 @@ export class MuJoCoDemo {
       let timestep = this.model.opt.timestep;
       if (timeMS - this.mujoco_time > 35.0) { this.mujoco_time = timeMS; }
       while (this.mujoco_time < timeMS) {
+
+        // Apply walking control if enabled
+        if (this.params["walking"] && this.params.scene.includes("openduck")) {
+          this.applyWalkingControl();
+        }
 
         // Jitter the control state with gaussian random noise
         if (this.params["ctrlnoisestd"] > 0.0) {
@@ -146,12 +195,10 @@ export class MuJoCoDemo {
             }
           }
           let bodyID = dragged.bodyID;
-          this.dragStateManager.update(); // Update the world-space force origin
+          this.dragStateManager.update();
           let force = toMujocoPos(this.dragStateManager.currentWorld.clone().sub(this.dragStateManager.worldHit).multiplyScalar(this.model.body_mass[bodyID] * 250));
           let point = toMujocoPos(this.dragStateManager.worldHit.clone());
           mujoco.mj_applyFT(this.model, this.data, [force.x, force.y, force.z], [0, 0, 0], [point.x, point.y, point.z], bodyID, this.data.qfrc_applied);
-
-          // TODO: Apply pose perturbations (mocap bodies only).
         }
 
         mujoco.mj_step(this.model, this.data);
@@ -160,17 +207,16 @@ export class MuJoCoDemo {
       }
 
     } else if (this.params["paused"]) {
-      this.dragStateManager.update(); // Update the world-space force origin
+      this.dragStateManager.update();
       let dragged = this.dragStateManager.physicsObject;
       if (dragged && dragged.bodyID) {
         let b = dragged.bodyID;
-        getPosition  (this.data.xpos , b, this.tmpVec , false); // Get raw coordinate from MuJoCo
-        getQuaternion(this.data.xquat, b, this.tmpQuat, false); // Get raw coordinate from MuJoCo
+        getPosition  (this.data.xpos , b, this.tmpVec , false);
+        getQuaternion(this.data.xquat, b, this.tmpQuat, false);
 
         let offset = toMujocoPos(this.dragStateManager.currentWorld.clone()
           .sub(this.dragStateManager.worldHit).multiplyScalar(0.3));
         if (this.model.body_mocapid[b] >= 0) {
-          // Set the root body's mocap position...
           console.log("Trying to move mocap body", b);
           let addr = this.model.body_mocapid[b] * 3;
           let pos  = this.data.mocap_pos;
@@ -178,7 +224,6 @@ export class MuJoCoDemo {
           pos[addr+1] += offset.y;
           pos[addr+2] += offset.z;
         } else {
-          // Set the root body's position directly...
           let root = this.model.body_rootid[b];
           let addr = this.model.jnt_qposadr[this.model.body_jntadr[root]];
           let pos  = this.data.qpos;
