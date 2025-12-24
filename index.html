@@ -3,11 +3,15 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenDuck Mini - MuJoCo Web Simulation</title>
-    <meta http-equiv="refresh" content="0; url=mujoco/">
+    <title>MuJoCo Web Demos</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         body {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -15,15 +19,112 @@
             justify-content: center;
             font-family: 'Segoe UI', system-ui, sans-serif;
             color: #fff;
+            padding: 40px 20px;
         }
-        a {
-            color: #4fc3f7;
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #4fc3f7, #81d4fa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            color: #888;
+            margin-bottom: 50px;
+            font-size: 1.1rem;
+        }
+        .demos {
+            display: flex;
+            gap: 40px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .demo-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 30px;
+            width: 320px;
+            text-align: center;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+        .demo-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255,255,255,0.1);
+            border-color: #4fc3f7;
+            box-shadow: 0 20px 40px rgba(79, 195, 247, 0.2);
+        }
+        .demo-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        .demo-card h2 {
             font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+        .demo-card p {
+            color: #aaa;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        .tech-stack {
+            margin-top: 15px;
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .tech-tag {
+            background: rgba(79, 195, 247, 0.2);
+            color: #4fc3f7;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+        }
+        footer {
+            margin-top: 60px;
+            color: #555;
+            font-size: 0.85rem;
+        }
+        footer a {
+            color: #4fc3f7;
+            text-decoration: none;
         }
     </style>
 </head>
 <body>
-    <h1>Redirecting to OpenDuck Simulator...</h1>
-    <p>If not redirected, <a href="mujoco/">click here</a></p>
+    <h1>MuJoCo Web Demos</h1>
+    <p class="subtitle">Physics simulation in the browser with WebAssembly</p>
+
+    <div class="demos">
+        <a href="mujoco/" class="demo-card">
+            <div class="demo-icon">🦆</div>
+            <h2>OpenDuck Mini</h2>
+            <p>Bipedal robot walking with ONNX neural network control. Use WASD to command the robot.</p>
+            <div class="tech-stack">
+                <span class="tech-tag">MuJoCo</span>
+                <span class="tech-tag">ONNX</span>
+                <span class="tech-tag">Three.js</span>
+            </div>
+        </a>
+
+        <a href="piano/" class="demo-card">
+            <div class="demo-icon">🎹</div>
+            <h2>RoboPianist</h2>
+            <p>Dexterous piano playing with Shadow Hands. Deep RL trained robot plays classical music.</p>
+            <div class="tech-stack">
+                <span class="tech-tag">MuJoCo</span>
+                <span class="tech-tag">RL Policy</span>
+                <span class="tech-tag">Three.js</span>
+            </div>
+        </a>
+    </div>
+
+    <footer>
+        <p>Powered by <a href="https://mujoco.org/">MuJoCo</a> | <a href="https://github.com/hwkim3330/lab">GitHub</a></p>
+    </footer>
 </body>
 </html>
