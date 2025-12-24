@@ -31,9 +31,10 @@ export class MuJoCoDemo {
     this.data  = new mujoco.MjData(this.model);
 
     // Define Random State Variables
-    this.params = { scene: initialScene, paused: false, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0, walking: true };
+    this.params = { scene: initialScene, paused: false, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0, walking: true, autoReset: true };
     this.mujoco_time = 0.0;
     this.walkPhase = 0.0;
+    this.fallCount = 0;
     this.bodies  = {}, this.lights = {};
     this.tmpVec  = new THREE.Vector3();
     this.tmpQuat = new THREE.Quaternion();
@@ -122,27 +123,47 @@ export class MuJoCoDemo {
 
     // Add quick reset button
     this.gui.add({
-      reset: () => {
-        if (this.model.nkey > 0) {
-          this.data.qpos.set(this.model.key_qpos.slice(0, this.model.nq));
-          this.data.ctrl.set(this.model.key_ctrl.slice(0, this.model.nu));
-          this.walkPhase = 0;
-          mujoco.mj_forward(this.model, this.data);
-        }
-      }
+      reset: () => { this.resetRobot(); }
     }, 'reset').name('Reset Robot (R)');
+
+    // Add auto-reset toggle
+    this.gui.add(this.params, 'autoReset').name('Auto Reset on Fall');
 
     // Add keyboard shortcut for reset
     document.addEventListener('keydown', (e) => {
       if (e.key === 'r' || e.key === 'R') {
-        if (this.model.nkey > 0) {
-          this.data.qpos.set(this.model.key_qpos.slice(0, this.model.nq));
-          this.data.ctrl.set(this.model.key_ctrl.slice(0, this.model.nu));
-          this.walkPhase = 0;
-          mujoco.mj_forward(this.model, this.data);
-        }
+        this.resetRobot();
       }
     });
+  }
+
+  resetRobot() {
+    if (this.model.nkey > 0) {
+      this.data.qpos.set(this.model.key_qpos.slice(0, this.model.nq));
+      this.data.ctrl.set(this.model.key_ctrl.slice(0, this.model.nu));
+      this.walkPhase = 0;
+      mujoco.mj_forward(this.model, this.data);
+      this.fallCount++;
+      console.log(`Reset #${this.fallCount}`);
+    }
+  }
+
+  checkFallen() {
+    // Check if robot has fallen (trunk height < 0.08m or tilted > 60 degrees)
+    // qpos[0,1,2] = position, qpos[3,4,5,6] = quaternion
+    const trunkZ = this.data.qpos[2];
+    const qw = this.data.qpos[3];
+    const qx = this.data.qpos[4];
+    const qy = this.data.qpos[5];
+    const qz = this.data.qpos[6];
+
+    // Calculate up vector from quaternion
+    const upX = 2 * (qx * qz + qw * qy);
+    const upY = 2 * (qy * qz - qw * qx);
+    const upZ = 1 - 2 * (qx * qx + qy * qy);
+
+    // If trunk too low or tilted too much
+    return trunkZ < 0.08 || upZ < 0.5;
   }
 
   onWindowResize() {
@@ -236,6 +257,11 @@ export class MuJoCoDemo {
         }
 
         mujoco.mj_step(this.model, this.data);
+
+        // Check for fall and auto-reset
+        if (this.params.autoReset && this.params.scene.includes("openduck") && this.checkFallen()) {
+          this.resetRobot();
+        }
 
         this.mujoco_time += timestep * 1000.0;
       }
