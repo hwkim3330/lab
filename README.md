@@ -1,10 +1,22 @@
-# Mini Isaac - RL Roguelike
+# Lab - RL Experiments
 
-A lightweight Isaac-style roguelike game built for reinforcement learning experiments.
+Reinforcement learning experiments with games and robotics simulation.
 
-## Play Online
+## Projects
 
+### 1. Mini Isaac - RL Roguelike
 [Play Now](https://hwkim3330.github.io/lab/)
+
+A lightweight Isaac-style roguelike game built for RL experiments.
+
+### 2. MuJoCo OpenDuck
+[Open Simulator](https://hwkim3330.github.io/lab/mujoco/)
+
+Browser-based MuJoCo physics simulation with OpenDuck Mini robot.
+
+---
+
+# Mini Isaac
 
 ## Features
 
@@ -64,8 +76,13 @@ lab/
 │   ├── src/
 │   │   └── main.rs
 │   └── Cargo.toml
-├── rl/                # Python RL (coming soon)
-├── index.html         # GitHub Pages
+├── rl/                # Python RL training
+│   ├── env.py         # Gymnasium environment
+│   └── train.py       # PPO/DQN training
+├── mujoco/            # MuJoCo WASM simulation
+│   ├── src/
+│   └── assets/scenes/openduck/
+├── index.html         # Mini Isaac game
 └── mini-isaac.wasm    # WASM build
 ```
 
