@@ -20,3 +20,12 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large development folders (not for git)
+Open_Duck_Mini/
+Open_Duck_Playground/
+mujoco_wasm/
+
+# RL training outputs
+rl/logs/
+rl/models/
